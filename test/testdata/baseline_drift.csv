@@ -1,0 +1,4 @@
+repository,path,kind,commit,line,valid,scanners,cleartext,fingerprint
+drift_repo,config/app.yaml,Generic,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,10,false,gitleaks,drifted_cleartext,drift_repo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:config/app.yaml:10
+drift_repo,config/app.yaml,AWS,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,25,,trufflehog,rotated_cleartext,drift_repo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:config/app.yaml:25
+drift_repo,README.md,Generic,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,3,,all,,manual_fingerprint_entry

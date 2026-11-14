@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,6 +195,19 @@ func (s Secret) IsEqual(other *Secret) bool {
 	return s.Fingerprint == other.Fingerprint
 }
 
+// Identity returns a stable identifier for the secret, independent from its
+// location (commit and line) in the repository. Two secrets with the same
+// value in the same file share the same identity, even if the code around
+// them moved. Secrets without a cleartext value fall back to their
+// fingerprint to remain compatible with manually crafted entries.
+func (s Secret) Identity() string {
+	if s.Cleartext == "" {
+		return s.Fingerprint
+	}
+	sum := sha256.Sum256([]byte(s.Cleartext))
+	return fmt.Sprintf("%s:%s:%x", s.Repository, s.Path, sum)
+}
+
 func (s Secret) Merge(other *Secret) (*Secret, error) {
 	if s.IsEqual(other) {
 		kind := s.Kind
@@ -224,5 +238,45 @@ func (s Secret) Merge(other *Secret) (*Secret, error) {
 		}, nil
 	} else {
 		return nil, ErrMergeSecretsNotEqual
+	}
+}
+
+// MergeIdentity merges two secrets that share the same stable identity (same
+// value in the same file, e.g. reported at different lines). The location of
+// the merged secret is the lowest line of the two, while kind, validity and
+// scanner information are combined.
+func (s Secret) MergeIdentity(other *Secret) *Secret {
+	base := &s
+	extra := other
+	if other.Line < s.Line || (other.Line == s.Line && other.Fingerprint < s.Fingerprint) {
+		base = other
+		extra = &s
+	}
+
+	kind := base.Kind
+	if kind == SecretKindGeneric {
+		kind = extra.Kind
+	}
+
+	valid := base.Valid
+	if valid == SecretValidityUnknown {
+		valid = extra.Valid
+	}
+
+	scanners := base.Scanners
+	if scanners != SecretScannersAll && scanners != extra.Scanners {
+		scanners = SecretScannersAll
+	}
+
+	return &Secret{
+		Repository:  base.Repository,
+		Path:        base.Path,
+		Kind:        kind,
+		Commit:      base.Commit,
+		Line:        base.Line,
+		Valid:       valid,
+		Scanners:    scanners,
+		Cleartext:   base.Cleartext,
+		Fingerprint: base.Fingerprint,
 	}
 }

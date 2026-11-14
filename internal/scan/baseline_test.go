@@ -57,3 +57,56 @@ func TestLoadBaseline(t *testing.T) {
 		t.Fatalf(`baseline = %v, want %v`, baseline, want)
 	}
 }
+
+func TestBaselineLineDrift(t *testing.T) {
+	err := LoadBaseline("../../test/testdata/baseline_drift.csv")
+	if err != nil {
+		t.Fatalf(`LoadBaseline("test/testdata/baseline_drift.csv") = %v, want nil`, err)
+	}
+
+	commit := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	// same value as the baseline, but the code moved it to another line in a
+	// newer commit: it must not be reported again
+	drifted, err := secret.NewSecret("drift_repo", "config/app.yaml", secret.SecretKindGeneric, commit, 42, secret.SecretValidityInvalid, secret.SecretScannersGitleaks, "drifted_cleartext", "")
+	if err != nil {
+		t.Fatalf(`NewSecret(drifted) = %v, want nil`, err)
+	}
+
+	// the same value repeated on the next line must be merged with the
+	// previous one instead of producing a second finding
+	duplicate, err := secret.NewSecret("drift_repo", "config/app.yaml", secret.SecretKindGeneric, commit, 43, secret.SecretValidityUnknown, secret.SecretScannersTrufflehog, "drifted_cleartext", "")
+	if err != nil {
+		t.Fatalf(`NewSecret(duplicate) = %v, want nil`, err)
+	}
+
+	// the value at this location changed since the baseline: it must be reported
+	changed, err := secret.NewSecret("drift_repo", "config/app.yaml", secret.SecretKindAWS, commit, 30, secret.SecretValidityUnknown, secret.SecretScannersTrufflehog, "changed_cleartext", "")
+	if err != nil {
+		t.Fatalf(`NewSecret(changed) = %v, want nil`, err)
+	}
+
+	// a brand new secret must be reported
+	brandNew, err := secret.NewSecret("drift_repo", "src/main.go", secret.SecretKindGeneric, commit, 7, secret.SecretValidityUnknown, secret.SecretScannersGitleaks, "brand_new_cleartext", "")
+	if err != nil {
+		t.Fatalf(`NewSecret(brandNew) = %v, want nil`, err)
+	}
+
+	// matches a baseline entry without cleartext through its fingerprint
+	manual, err := secret.NewSecret("drift_repo", "README.md", secret.SecretKindGeneric, commit, 3, secret.SecretValidityUnknown, secret.SecretScannersAll, "", "manual_fingerprint_entry")
+	if err != nil {
+		t.Fatalf(`NewSecret(manual) = %v, want nil`, err)
+	}
+
+	scanned := secret.NewSetFromSlice([]*secret.Secret{drifted, duplicate, changed, brandNew, manual})
+
+	got := scanned.
+		DedupeIdentities().
+		DiffIdentities(GetRepoBaseline("drift_repo"))
+
+	want := secret.NewSetFromSlice([]*secret.Secret{changed, brandNew})
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(`scanned.DedupeIdentities().DiffIdentities(baseline) = %v, want %v`, got, want)
+	}
+}

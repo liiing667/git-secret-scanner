@@ -473,6 +473,83 @@ func TestSecretDiff(t *testing.T) {
 	}
 }
 
+func TestSecretDiffIdentities(t *testing.T) {
+	set := NewSetFromSlice(testSlice)
+
+	// a baseline entry with the same value in the same file matches even if
+	// commit and line drifted
+	baseline := NewSet()
+	baseline.Add(&test1Drifted)
+
+	test := set.DiffIdentities(baseline)
+	want := SecretSet{
+		"hardcoded_fingerprint": &Secret{
+			Repository:  "test2_repo",
+			Path:        "test2_path",
+			Kind:        SecretKindGeneric,
+			Commit:      "e2acefa38de1bb02673cd2496a4663a3c6c42599",
+			Line:        42,
+			Valid:       SecretValidityUnknown,
+			Scanners:    SecretScannersAll,
+			Cleartext:   "",
+			Fingerprint: "hardcoded_fingerprint",
+		},
+	}
+
+	if !reflect.DeepEqual(test, want) {
+		t.Fatalf(`set.DiffIdentities(baseline) = %v, want %v`, test, want)
+	}
+
+	// a changed value at the same location is still reported
+	baselineChanged := NewSet()
+	baselineChanged.Add(&test1Changed)
+
+	test = set.DiffIdentities(baselineChanged)
+	if test.Length() != 2 {
+		t.Fatalf(`set.DiffIdentities(baselineChanged).Length() = %d, want %d`, test.Length(), 2)
+	}
+
+	// an empty baseline keeps everything
+	test = set.DiffIdentities(NewSet())
+	if !reflect.DeepEqual(test, set) {
+		t.Fatalf(`set.DiffIdentities(NewSet()) = %v, want %v`, test, set)
+	}
+}
+
+func TestSecretDedupeIdentities(t *testing.T) {
+	set := NewSetFromSlice([]*Secret{&test1, &test3, &test1Drifted, &test2})
+
+	test := set.DedupeIdentities()
+	want := SecretSet{
+		"test1_repo:e2acefa38de1bb02673cd2496a4663a3c6c42508:test1_path:10": &Secret{
+			Repository:  "test1_repo",
+			Path:        "test1_path",
+			Kind:        SecretKindAMQP,
+			Commit:      "e2acefa38de1bb02673cd2496a4663a3c6c42508",
+			Line:        10,
+			Valid:       SecretValidityInvalid,
+			Scanners:    SecretScannersAll,
+			Cleartext:   "test1_cleartext",
+			Fingerprint: "test1_repo:e2acefa38de1bb02673cd2496a4663a3c6c42508:test1_path:10",
+		},
+		"hardcoded_fingerprint": &Secret{
+			Repository:  "test2_repo",
+			Path:        "test2_path",
+			Kind:        SecretKindGeneric,
+			Commit:      "e2acefa38de1bb02673cd2496a4663a3c6c42599",
+			Line:        42,
+			Valid:       SecretValidityUnknown,
+			Scanners:    SecretScannersAll,
+			Cleartext:   "",
+			Fingerprint: "hardcoded_fingerprint",
+		},
+	}
+
+	if !reflect.DeepEqual(test, want) {
+		t.Fatalf(`set.DedupeIdentities() = %v, want %v`, test, want)
+	}
+}
+
 func TestSecretDropFingerprints(t *testing.T) {
 	set := NewSetFromSlice(testSlice)
 	fps := []string{"hardcoded_fingerprint"}

@@ -113,7 +113,8 @@ func repoScanTask(ctx context.Context, repository string, s scm.Scm, full bool, 
 
 	secrets := thSecrets.
 		Union(glSecrets).
-		Diff(GetRepoBaseline(repository)).
+		DedupeIdentities().
+		DiffIdentities(GetRepoBaseline(repository)).
 		DropFingerprints(GetRepoIgnoredFingerprints(repository))
 
 	if err := w.WriteAll(secrets.ToSlice()); err != nil {

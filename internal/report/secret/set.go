@@ -61,6 +61,48 @@ func (set SecretSet) Diff(other SecretSet) SecretSet {
 	return newSet
 }
 
+// DiffIdentities returns the secrets of the set whose stable identity (see
+// Secret.Identity) does not appear in the other set. Unlike Diff, it does not
+// rely on commit or line number, so secrets that moved within their file are
+// still matched.
+func (set SecretSet) DiffIdentities(other SecretSet) SecretSet {
+	identities := make(map[string]struct{}, other.Length())
+	for _, s := range other {
+		identities[s.Identity()] = struct{}{}
+	}
+
+	newSet := NewSet()
+	for _, s := range set {
+		if _, ok := identities[s.Identity()]; !ok {
+			newSet.Add(s)
+		}
+	}
+	return newSet
+}
+
+// DedupeIdentities merges secrets that share the same stable identity (same
+// value found at multiple lines of the same file) into a single entry. The
+// representative entry is the one with the lowest line number, while validity and
+// scanner information are merged across all duplicates.
+func (set SecretSet) DedupeIdentities() SecretSet {
+	representatives := make(map[string]string, set.Length())
+	newSet := NewSet()
+	for _, s := range set {
+		identity := s.Identity()
+		fingerprint, ok := representatives[identity]
+		if ok {
+			merged := newSet[fingerprint].MergeIdentity(s)
+			delete(newSet, fingerprint)
+			newSet[merged.Fingerprint] = merged
+			representatives[identity] = merged.Fingerprint
+		} else {
+			representatives[identity] = s.Fingerprint
+			newSet.Add(s)
+		}
+	}
+	return newSet
+}
+
 func (set SecretSet) DropFingerprints(fps []string) SecretSet {
 	newSet := set.Clone()
 	for _, fp := range fps {
