@@ -72,3 +72,53 @@ func TestGitlabScmGitRepoUrl(t *testing.T) {
 		t.Fatalf(`scm.GitRepoUrl("test_user/test_repo") = %q, want %q`, test, want)
 	}
 }
+
+func TestGitlabScmBinding(t *testing.T) {
+	config := &ScmConfig{
+		Org:             "test_org",
+		Server:          "TEST.server:8443",
+		GitProtocol:     git.ProtocolHTTPS,
+		Visiblity:       VisibilityAll,
+		IncludeArchived: true,
+	}
+
+	scm, err := NewGitlabScm(config, "faketoken")
+	if err != nil {
+		t.Fatalf(`NewGitlabScm(...) = _, %v, want _, nil`, err)
+	}
+
+	if scm.Provider() != ProviderGitlab {
+		t.Fatalf(`scm.Provider() = %q, want %q`, scm.Provider(), ProviderGitlab)
+	}
+	if scm.Token() != "faketoken" {
+		t.Fatalf(`scm.Token() = %q, want "faketoken"`, scm.Token())
+	}
+
+	// the server is normalized (case-insensitive) and non-default ports are
+	// preserved
+	if scm.Server != "test.server:8443" {
+		t.Fatalf(`scm.Server = %q, want "test.server:8443"`, scm.Server)
+	}
+
+	test := scm.RepoIdentity("Test_User/Test_Repo")
+	want := git.NewRepoIdentity("test.server:8443", "test_user/test_repo")
+	if test != want {
+		t.Fatalf(`scm.RepoIdentity("Test_User/Test_Repo") = %v, want %v`, test, want)
+	}
+
+	// URLs built for any protocol map back to the same identity, port
+	// included
+	for _, protocol := range []git.Protocol{git.ProtocolHTTPS, git.ProtocolSSH} {
+		url := scm.GitRepoUrlForProtocol("test_user/test_repo", protocol)
+		identity, parsedProtocol, err := git.ParseRepoURL(url)
+		if err != nil {
+			t.Fatalf(`git.ParseRepoURL(%q) = _, _, %v, want _, _, nil`, url, err)
+		}
+		if identity != want {
+			t.Fatalf(`git.ParseRepoURL(%q) = %v, want %v`, url, identity, want)
+		}
+		if parsedProtocol != protocol {
+			t.Fatalf(`git.ParseRepoURL(%q) protocol = %v, want %v`, url, parsedProtocol, protocol)
+		}
+	}
+}

@@ -79,7 +79,25 @@ func (v Visibility) Gitlab() *gitlab.VisibilityValue {
 type Scm interface {
 	GitRepoUrl(repository string) string
 	ListRepos(ctx context.Context) ([]string, error)
+
+	// Provider returns the identifier of the SCM source (e.g. "github" or
+	// "gitlab") the repositories are listed from.
+	Provider() string
+	// Token returns the credential used to authenticate to the SCM.
+	Token() string
+	// RepoIdentity returns the normalized identity of a repository, which
+	// stays stable across protocols, credentials and case variations.
+	RepoIdentity(repository string) git.RepoIdentity
+	// GitRepoUrlForProtocol builds the clone URL of a repository for the
+	// given protocol, with the same server and credential as GitRepoUrl.
+	GitRepoUrlForProtocol(repository string, protocol git.Protocol) string
 }
+
+// SCM source identifiers
+const (
+	ProviderGithub string = "github"
+	ProviderGitlab string = "gitlab"
+)
 
 type ScmConfig struct {
 	Org             string

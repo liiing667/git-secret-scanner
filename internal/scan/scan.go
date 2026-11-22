@@ -88,12 +88,31 @@ type ScanArgs struct {
 	ShowProgress           bool
 }
 
-func repoScanTask(ctx context.Context, repository string, s scm.Scm, full bool, w report.ReportWriter) error {
-	destination := path.Join(utils.TempDirPath(), repository)
+func repoScanTask(ctx context.Context, repository string, s scm.Scm, full bool, w report.ReportWriter, credentials *scm.CredentialRegistry) error {
+	// the clone is keyed by the normalized identity of the repository, so
+	// that different SCM entry points (server, protocol, case) cannot make
+	// two repositories share the same local clone
+	identity := s.RepoIdentity(repository)
+	destination := path.Join(utils.TempDirPath(), identity.Server, identity.Repository)
 
 	url := s.GitRepoUrl(repository)
+	generation := credentials.Generation(s.Token())
 
-	err := git.Clone(ctx, url, destination, !full, true)
+	// bind the clone to the normalized repository identity, the SCM source
+	// and the generation of the credential used to fetch it
+	provenance, err := git.NewProvenance(s.Provider(), identity, generation, s.Token(), url)
+	if err != nil {
+		return fmt.Errorf("failed to build provenance for repository %q: %w", repository, err)
+	}
+
+	err = git.CloneRepository(ctx, git.CloneRequest{
+		URL:           url,
+		Destination:   destination,
+		Shallow:       !full,
+		FetchIfExists: true,
+		Identity:      identity,
+		Provenance:    &provenance,
+	})
 	if err != nil {
 		// if remote is empty, scan next repository
 		if errors.Is(err, transport.ErrEmptyRemoteRepository) {
@@ -101,6 +120,12 @@ func repoScanTask(ctx context.Context, repository string, s scm.Scm, full bool, 
 		}
 		return fmt.Errorf("failed to clone repository %q: %w", repository, err)
 	}
+
+	log.Debug().
+		Str("repository", repository).
+		Str("identity", identity.String()).
+		Int("credential_generation", generation).
+		Msgf("cloned %s", repository)
 
 	thSecrets, err := trufflehog.Scan(ctx, repository, destination, full)
 	if err != nil {
@@ -115,6 +140,11 @@ func repoScanTask(ctx context.Context, repository string, s scm.Scm, full bool, 
 		Union(glSecrets).
 		Diff(GetRepoBaseline(repository)).
 		DropFingerprints(GetRepoIgnoredFingerprints(repository))
+
+	// findings are bound to the normalized identity of the scanned
+	// repository: anything that does not belong to it must never be
+	// reported under its name
+	secrets = BindSecretsToIdentity(secrets, identity)
 
 	if err := w.WriteAll(secrets.ToSlice()); err != nil {
 		return fmt.Errorf("failed to add secrets in report for repository %q: %w", repository, err)
@@ -166,11 +196,13 @@ func Scan(ctx context.Context, s scm.Scm, args ScanArgs) error {
 		return fmt.Errorf("failed to retrieve repositories list: %w", err)
 	}
 
+	credentials := scm.NewCredentialRegistry()
+
 	tasks := make([]*progress.Task, 0, len(repos))
 	for _, repo := range repos {
 		repo := repo // closure
 		tasks = append(tasks, progress.NewTask(func(ctx context.Context) error {
-			return repoScanTask(ctx, repo, s, args.ScanType == ScanTypeFull, writer)
+			return repoScanTask(ctx, repo, s, args.ScanType == ScanTypeFull, writer, credentials)
 		}))
 	}
 

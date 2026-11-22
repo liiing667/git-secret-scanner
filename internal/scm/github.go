@@ -20,6 +20,7 @@ func NewGithubScm(config *ScmConfig, token string) (*GithubScm, error) {
 
 	opts := []github.ClientOptionsFunc{github.WithAuthToken(token)}
 
+	config.Server = git.NormalizeServer(config.Server)
 	if config.Server == "" || config.Server == "github.com" {
 		config.Server = "github.com"
 	} else {
@@ -36,6 +37,22 @@ func NewGithubScm(config *ScmConfig, token string) (*GithubScm, error) {
 
 func (gs GithubScm) GitRepoUrl(repository string) string {
 	return git.RepoUrl(repository, gs.GitProtocol, gs.Server, gs.token)
+}
+
+func (gs GithubScm) GitRepoUrlForProtocol(repository string, protocol git.Protocol) string {
+	return git.RepoUrl(repository, protocol, gs.Server, gs.token)
+}
+
+func (gs GithubScm) Provider() string {
+	return ProviderGithub
+}
+
+func (gs GithubScm) Token() string {
+	return gs.token
+}
+
+func (gs GithubScm) RepoIdentity(repository string) git.RepoIdentity {
+	return git.NewRepoIdentity(gs.Server, repository)
 }
 
 func (gs GithubScm) ListRepos(ctx context.Context) ([]string, error) {

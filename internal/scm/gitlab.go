@@ -18,6 +18,7 @@ type GitlabScm struct {
 func NewGitlabScm(config *ScmConfig, token string) (*GitlabScm, error) {
 	opts := make([]gitlab.ClientOptionFunc, 0, 1)
 
+	config.Server = git.NormalizeServer(config.Server)
 	if config.Server == "" || config.Server == "gitlab.com" {
 		config.Server = "gitlab.com"
 	} else {
@@ -34,6 +35,22 @@ func NewGitlabScm(config *ScmConfig, token string) (*GitlabScm, error) {
 
 func (gl GitlabScm) GitRepoUrl(repository string) string {
 	return git.RepoUrl(repository, gl.GitProtocol, gl.Server, gl.token)
+}
+
+func (gl GitlabScm) GitRepoUrlForProtocol(repository string, protocol git.Protocol) string {
+	return git.RepoUrl(repository, protocol, gl.Server, gl.token)
+}
+
+func (gl GitlabScm) Provider() string {
+	return ProviderGitlab
+}
+
+func (gl GitlabScm) Token() string {
+	return gl.token
+}
+
+func (gl GitlabScm) RepoIdentity(repository string) git.RepoIdentity {
+	return git.NewRepoIdentity(gl.Server, repository)
 }
 
 func (gl GitlabScm) ListRepos(ctx context.Context) ([]string, error) {
