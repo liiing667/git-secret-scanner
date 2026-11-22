@@ -81,7 +81,7 @@ func preRun(cmd *cobra.Command, args []string) {
 	log.Debug().
 		Str("scan_type", scanArgs.ScanType.String()).
 		Str("report_path", scanArgs.ReportPath).
-		Str("format", scanArgs.ReportFormat.String()).
+		Str("formats", scanArgs.ReportFormats.String()).
 		Str("fingerprints_ignore_path", scanArgs.FingerprintsIgnorePath).
 		Str("baseline_path", scanArgs.BaselinePath).
 		Int("max_concurrency", scanArgs.MaxConcurrency).
@@ -98,7 +98,7 @@ func registerCommonFlags(cmd *cobra.Command) {
 
 	// scan args
 	cmd.Flags().StringVarP(&scanArgs.ReportPath, "report-path", "r", "", "Path to the CSV report file to generate (default \"report.{json,csv}\")")
-	cmd.Flags().VarP(&scanArgs.ReportFormat, "format", "f", "Format of the report")
+	cmd.Flags().VarP(&scanArgs.ReportFormats, "format", "f", "Format of the report(s) to generate, as a single format or a comma-separated list (default \"json\")")
 	cmd.Flags().StringVarP(&scanArgs.FingerprintsIgnorePath, "fingerprints-ignore-path", "i", "", "Path to file with newline separated fingerprints (SHA-256) of secrets to ignore during the scan")
 	cmd.Flags().StringVarP(&scanArgs.BaselinePath, "baseline-path", "b", "", "Path to the CSV report to use as baseline for the scan")
 	cmd.Flags().IntVar(&scanArgs.MaxConcurrency, "max-concurrency", 5, "Maximum number of concurrent workers")

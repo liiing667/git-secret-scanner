@@ -1,5 +1,7 @@
 package secret
 
+import "sort"
+
 type SecretSet map[string]*Secret
 
 func NewSet() SecretSet {
@@ -69,10 +71,29 @@ func (set SecretSet) DropFingerprints(fps []string) SecretSet {
 	return newSet
 }
 
+// ToSlice returns the secrets of the set as a slice. The secrets are sorted
+// in a stable, deterministic order (by repository, path, line, commit and
+// fingerprint) so that reports generated from a set do not depend on map
+// iteration order.
 func (set SecretSet) ToSlice() []*Secret {
 	slice := make([]*Secret, 0, set.Length())
 	for _, s := range set {
 		slice = append(slice, s)
 	}
+	sort.SliceStable(slice, func(i, j int) bool {
+		if slice[i].Repository != slice[j].Repository {
+			return slice[i].Repository < slice[j].Repository
+		}
+		if slice[i].Path != slice[j].Path {
+			return slice[i].Path < slice[j].Path
+		}
+		if slice[i].Line != slice[j].Line {
+			return slice[i].Line < slice[j].Line
+		}
+		if slice[i].Commit != slice[j].Commit {
+			return slice[i].Commit < slice[j].Commit
+		}
+		return slice[i].Fingerprint < slice[j].Fingerprint
+	})
 	return slice
 }

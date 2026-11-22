@@ -529,3 +529,20 @@ func TestSecretToSlice(t *testing.T) {
 		t.Fatalf(`set.ToSlice() = %v, want %v`, test, want)
 	}
 }
+
+func TestSecretToSliceStableOrder(t *testing.T) {
+	set := NewSet()
+	set.Add(&test6)
+	set.Add(&test5)
+	set.Add(&test4)
+	set.Add(&test1)
+
+	// the slice is sorted by repository, path and line whatever the
+	// insertion order is, so that generated reports are deterministic
+	test := set.ToSlice()
+	want := []*Secret{&test1, &test4, &test5, &test6}
+
+	if !reflect.DeepEqual(test, want) {
+		t.Fatalf(`set.ToSlice() = %v, want %v`, test, want)
+	}
+}

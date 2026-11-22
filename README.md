@@ -108,6 +108,17 @@ git-secret-scanner github -o "<org>"
 git-secret-scanner gitlab -g "<group>"
 ```
 
+### Reports
+
+By default, the scan writes a JSON report to `report.json`. Use the `-f`/`--format` flag to select another format or several formats as a comma-separated list, and `-r`/`--report-path` to change the output path (one file per format is generated when several formats are selected).
+
+```shell
+# Generates report.csv and report.json
+git-secret-scanner github -o "<org>" -f csv,json
+```
+
+Reports are written once every repository has been scanned, in a single atomic commit: each report is first fully written to a temporary file and then moved to its final path, replacing any previous report. If any report cannot be written, no report is created or updated, previous reports are left untouched and the command fails with a non-zero exit status, so report consumers never observe empty, partial or mixed data.
+
 ### Ignore secrets
 
 You can instruct `git-secret-scanner` to ignore some specific secrets in its results. This is useful to ignore false positives or to ignore secrets that have already been dealt with.
