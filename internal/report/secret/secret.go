@@ -1,9 +1,11 @@
 package secret
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type SecretValidity int
@@ -191,7 +193,49 @@ func NewSecret(repository string, path string, kind SecretKind, commit string, l
 }
 
 func (s Secret) IsEqual(other *Secret) bool {
-	return s.Fingerprint == other.Fingerprint
+	if other == nil {
+		return false
+	}
+	return s.Fingerprint == other.Fingerprint && s.Identity() == other.Identity()
+}
+
+// CanonicalCleartext normalizes only representation differences that do not
+// change the secret value (surrounding whitespace and a matching pair of
+// quotes). The raw cleartext is kept in reports; the canonical form is only
+// used to compute a stable identity.
+func CanonicalCleartext(cleartext string) string {
+	value := strings.TrimSpace(cleartext)
+	if len(value) >= 2 {
+		first := value[0]
+		last := value[len(value)-1]
+		if first == last && (first == '"' || first == '\'' || first == '`') {
+			value = value[1 : len(value)-1]
+		}
+	}
+	return value
+}
+
+// ValueDigest returns the SHA-256 digest of the canonical secret value. An
+// empty cleartext has no digest: entries without a value stay compatible with
+// the historical fingerprint-only behaviour.
+func (s Secret) ValueDigest() string {
+	if s.Cleartext == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(CanonicalCleartext(s.Cleartext)))
+	return fmt.Sprintf("%x", sum)
+}
+
+// Identity returns a stable identifier for the secret, independent from its
+// location (commit and line) in the repository. Two secrets with the same
+// value in the same file share the same identity, even if the code around
+// them moved. Secrets without a cleartext value fall back to their
+// fingerprint to remain compatible with manually crafted entries.
+func (s Secret) Identity() string {
+	if s.Cleartext == "" {
+		return s.Fingerprint
+	}
+	return fmt.Sprintf("%s:%s:%s", s.Repository, s.Path, s.ValueDigest())
 }
 
 func (s Secret) Merge(other *Secret) (*Secret, error) {
@@ -224,5 +268,45 @@ func (s Secret) Merge(other *Secret) (*Secret, error) {
 		}, nil
 	} else {
 		return nil, ErrMergeSecretsNotEqual
+	}
+}
+
+// MergeIdentity merges two secrets that share the same stable identity (same
+// value in the same file, e.g. reported at different lines). The location of
+// the merged secret is the lowest line of the two, while kind, validity and
+// scanner information are combined.
+func (s Secret) MergeIdentity(other *Secret) *Secret {
+	base := &s
+	extra := other
+	if other.Line < s.Line || (other.Line == s.Line && other.Fingerprint < s.Fingerprint) {
+		base = other
+		extra = &s
+	}
+
+	kind := base.Kind
+	if kind == SecretKindGeneric {
+		kind = extra.Kind
+	}
+
+	valid := base.Valid
+	if valid == SecretValidityUnknown {
+		valid = extra.Valid
+	}
+
+	scanners := base.Scanners
+	if scanners != SecretScannersAll && scanners != extra.Scanners {
+		scanners = SecretScannersAll
+	}
+
+	return &Secret{
+		Repository:  base.Repository,
+		Path:        base.Path,
+		Kind:        kind,
+		Commit:      base.Commit,
+		Line:        base.Line,
+		Valid:       valid,
+		Scanners:    scanners,
+		Cleartext:   base.Cleartext,
+		Fingerprint: base.Fingerprint,
 	}
 }

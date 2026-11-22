@@ -474,6 +474,7 @@ func TestSecretDiff(t *testing.T) {
 }
 
 func TestSecretDropFingerprints(t *testing.T) {
+	ResetLearnedIgnoreIdentities()
 	set := NewSetFromSlice(testSlice)
 	fps := []string{"hardcoded_fingerprint"}
 

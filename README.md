@@ -131,9 +131,42 @@ git-secret-scanner github -o "<org>" -i "<path_to_fingerprints_ignore_file>"
 git-secret-scanner gitlab -g "<group>" -i "<path_to_fingerprints_ignore_file>"
 ```
 
+#### Versioned fingerprints
+
+The historical `<repo_name>:<commit_sha>:<file>:<line>` lines are still
+accepted. They keep their original meaning: the exact fingerprint is ignored.
+
+To keep an ignore valid after code moves, and to make sure a new secret that
+reuses an old line is still reported, a fingerprint can be bound to the secret
+value and to the scan generation that reviewed it:
+
+```
+# gss-ignore-version: 2
+# gss-ignore-generation: <report-or-scan-generation>
+<repo_name>:<commit_sha>:<file>:<line>	<secret_identity>	<generation>
+```
+
+The identity is `<repo_name>:<file>:<sha256(canonical_secret_value)>`.
+Tab-separated, pipe-separated, whitespace-separated and JSON-object lines are
+accepted; JSON objects use the fields `fingerprint`, `identity`, `generation`,
+`source` and `reason`. The loader validates the complete file before replacing
+the current snapshot. If the file is malformed, the previous complete
+generation remains active.
+
+Each entry removes at most one finding. A moved secret keeps its identity and
+stays ignored, while a different value at the old line, a duplicate line that
+was not explicitly listed, and a newly added secret remain in the report.
+Historical fingerprint-only entries are upgraded with the value identity from
+the baseline report when that binding is unambiguous, or from the value that
+was actually ignored by a previous scan generation in the same process.
+
 ### Baseline
 
 `git-secret-scanner` supports using a previous report as a baseline for a scan. All previous secrets found in the baseline are ignored in the final report. This is useful to detect added secrets between two scans.
+
+Baseline entries that contain a cleartext value are also matched by the
+repository, file and secret value. A moved secret therefore stays in the
+baseline, while a different value that reuses the old line is reported.
 
 ```shell
 git-secret-scanner github -o "<org>" -b "<path_to_previous_report>"
