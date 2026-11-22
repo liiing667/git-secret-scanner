@@ -2,8 +2,10 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/padok-team/git-secret-scanner/internal/report/secret"
 	"github.com/padok-team/git-secret-scanner/internal/utils"
@@ -13,6 +15,8 @@ type JSONReportWriter struct {
 	SecretsWrittenCount int
 
 	file *os.File
+	lock sync.Mutex
+	done bool
 }
 
 func NewJSONReportWriter(path string) (*JSONReportWriter, error) {
@@ -31,6 +35,13 @@ func NewJSONReportWriter(path string) (*JSONReportWriter, error) {
 }
 
 func (w *JSONReportWriter) WriteAll(s []*secret.Secret) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.done {
+		return errors.New("report writer is already closed")
+	}
+
 	if len(s) > 0 {
 		for _, secret := range s {
 			var input string
@@ -68,6 +79,14 @@ func (w *JSONReportWriter) WriteAll(s []*secret.Secret) error {
 }
 
 func (w *JSONReportWriter) Close() error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.done {
+		return nil
+	}
+	w.done = true
+
 	return w.file.Close()
 }
 

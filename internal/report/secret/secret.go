@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -170,6 +171,10 @@ type Secret struct {
 	Scanners    SecretScanners `csv:"scanners" json:"scanners"`
 	Cleartext   string         `csv:"cleartext" json:"cleartext"`
 	Fingerprint string         `csv:"fingerprint" json:"fingerprint"`
+	// Generation binds the finding to the scan run that produced it. It is
+	// internal bookkeeping and is deliberately not part of the CSV or JSON
+	// report schema.
+	Generation string `csv:"-" json:"-"`
 }
 
 func NewSecret(repository string, path string, kind SecretKind, commit string, line int, valid SecretValidity, scanners SecretScanners, cleartext string, fingerprint string) (*Secret, error) {
@@ -191,7 +196,38 @@ func NewSecret(repository string, path string, kind SecretKind, commit string, l
 }
 
 func (s Secret) IsEqual(other *Secret) bool {
-	return s.Fingerprint == other.Fingerprint
+	if other == nil {
+		return false
+	}
+	if s.Fingerprint != other.Fingerprint {
+		return false
+	}
+	// Findings from different scan generations never describe the same
+	// occurrence, even when they share a fingerprint.
+	if s.Generation != "" && other.Generation != "" && s.Generation != other.Generation {
+		return false
+	}
+	return true
+}
+
+// Identity returns a stable identifier for the secret, independent from the
+// location (commit and line) of a finding. Two findings that carry the same
+// value in the same file share the same identity even when an engine reports
+// them at different lines. Findings without a cleartext value fall back to
+// their fingerprint so manually crafted entries keep working.
+func (s Secret) Identity() string {
+	if s.Cleartext == "" {
+		return s.Fingerprint
+	}
+	sum := sha256.Sum256([]byte(s.Cleartext))
+	return fmt.Sprintf("%s:%s:%x", s.Repository, s.Path, sum)
+}
+
+// WithGeneration returns a copy of the secret bound to the given scan
+// generation.
+func (s Secret) WithGeneration(generation string) *Secret {
+	s.Generation = generation
+	return &s
 }
 
 func (s Secret) Merge(other *Secret) (*Secret, error) {
@@ -211,6 +247,11 @@ func (s Secret) Merge(other *Secret) (*Secret, error) {
 			scanners = SecretScannersAll
 		}
 
+		generation := s.Generation
+		if generation == "" {
+			generation = other.Generation
+		}
+
 		return &Secret{
 			Repository:  s.Repository,
 			Path:        s.Path,
@@ -221,8 +262,60 @@ func (s Secret) Merge(other *Secret) (*Secret, error) {
 			Scanners:    scanners,
 			Cleartext:   s.Cleartext,
 			Fingerprint: s.Fingerprint,
+			Generation:  generation,
 		}, nil
 	} else {
 		return nil, ErrMergeSecretsNotEqual
+	}
+}
+
+// MergeIdentity merges two findings that share the same stable identity (the
+// same value in the same file, potentially reported at different lines). The
+// representative finding is the one with the lowest line number, while kind,
+// validity, scanner and generation information are combined.
+func (s Secret) MergeIdentity(other *Secret) *Secret {
+	base := &s
+	extra := other
+	if other.Line < s.Line || (other.Line == s.Line && other.Fingerprint < s.Fingerprint) {
+		base = other
+		extra = &s
+	}
+
+	kind := base.Kind
+	if kind == SecretKindGeneric {
+		kind = extra.Kind
+	}
+
+	valid := base.Valid
+	if valid == SecretValidityUnknown {
+		valid = extra.Valid
+	}
+
+	scanners := base.Scanners
+	if scanners != SecretScannersAll && scanners != extra.Scanners {
+		scanners = SecretScannersAll
+	}
+
+	generation := base.Generation
+	if generation == "" {
+		generation = extra.Generation
+	}
+
+	cleartext := base.Cleartext
+	if cleartext == "" {
+		cleartext = extra.Cleartext
+	}
+
+	return &Secret{
+		Repository:  base.Repository,
+		Path:        base.Path,
+		Kind:        kind,
+		Commit:      base.Commit,
+		Line:        base.Line,
+		Valid:       valid,
+		Scanners:    scanners,
+		Cleartext:   cleartext,
+		Fingerprint: base.Fingerprint,
+		Generation:  generation,
 	}
 }

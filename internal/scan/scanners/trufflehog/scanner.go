@@ -109,13 +109,21 @@ func Scan(ctx context.Context, repository string, directory string, full bool) (
 		return nil, err
 	}
 
+	stderrDone := make(chan []byte, 1)
+	go func() {
+		stderr, _ := io.ReadAll(stderrP)
+		stderrDone <- stderr
+	}()
+
 	secrets := secret.NewSet()
 	decoder := json.NewDecoder(stdoutP)
 
+	var decodeErr error
 	for decoder.More() {
 		var item TrufflehogReportItem
 		if err := decoder.Decode(&item); err != nil {
-			return nil, err
+			decodeErr = err
+			break
 		}
 
 		// if "File" is not defined, it means Trufflehog found something in the commit message
@@ -126,29 +134,43 @@ func Scan(ctx context.Context, repository string, directory string, full bool) (
 
 		ignored, err := scanners.IsLineIgnored(directory, item.Commit, item.File, item.Line)
 		if err != nil {
-			return nil, err
+			decodeErr = err
+			break
 		}
 
 		if !ignored {
 			s, err := item.ToSecret(repository)
 			if err != nil {
-				return nil, err
+				decodeErr = err
+				break
 			}
 			secrets.Add(s)
 		}
 	}
 
-	stderr, err := io.ReadAll(stderrP)
-	if err != nil {
-		return nil, err
+	if decodeErr != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
 
+	// Drain anything the decoder did not consume so that the child process can
+	// never block on a full stdout pipe before we wait for it.
+	_, _ = io.Copy(io.Discard, stdoutP)
+
+	stderr := <-stderrDone
+
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
 			return nil, fmt.Errorf("\"trufflehog\" exited with error:\n%s", stderr)
 		}
 		return nil, err
+	}
+
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
 
 	return secrets, nil

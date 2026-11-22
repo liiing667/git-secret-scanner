@@ -6,22 +6,48 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
 
-var ignoredFingerprints map[string][]string
+var (
+	ignoredFingerprints   map[string][]string
+	ignoredFingerprintsMu sync.RWMutex
+)
 
 func SetIgnoredFingerprints(fps map[string][]string) {
+	ignoredFingerprintsMu.Lock()
+	defer ignoredFingerprintsMu.Unlock()
 	ignoredFingerprints = fps
 }
 
 func GetRepoIgnoredFingerprints(repository string) []string {
+	ignoredFingerprintsMu.RLock()
+	defer ignoredFingerprintsMu.RUnlock()
+
 	fps, ok := ignoredFingerprints[repository]
 	if !ok {
 		return make([]string, 0)
 	}
-	return fps
+	return append([]string(nil), fps...)
+}
+
+func ResetIgnoredFingerprints() {
+	ignoredFingerprintsMu.Lock()
+	defer ignoredFingerprintsMu.Unlock()
+	ignoredFingerprints = nil
+}
+
+func snapshotIgnoredFingerprints() map[string][]string {
+	ignoredFingerprintsMu.RLock()
+	defer ignoredFingerprintsMu.RUnlock()
+
+	snapshot := make(map[string][]string, len(ignoredFingerprints))
+	for repository, fps := range ignoredFingerprints {
+		snapshot[repository] = append([]string(nil), fps...)
+	}
+	return snapshot
 }
 
 func LoadIgnoredFingerprints(path string) error {

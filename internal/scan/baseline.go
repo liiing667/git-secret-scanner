@@ -2,20 +2,49 @@ package scan
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/padok-team/git-secret-scanner/internal/report"
 	"github.com/padok-team/git-secret-scanner/internal/report/secret"
 	"github.com/rs/zerolog/log"
 )
 
-var baseline map[string]secret.SecretSet
+var (
+	baseline   map[string]secret.SecretSet
+	baselineMu sync.RWMutex
+)
 
 func SetBaseline(b map[string]secret.SecretSet) {
+	baselineMu.Lock()
+	defer baselineMu.Unlock()
 	baseline = b
 }
 
 func GetRepoBaseline(repository string) secret.SecretSet {
-	return baseline[repository]
+	baselineMu.RLock()
+	defer baselineMu.RUnlock()
+
+	if set, ok := baseline[repository]; ok {
+		return set.Clone()
+	}
+	return nil
+}
+
+func ResetBaseline() {
+	baselineMu.Lock()
+	defer baselineMu.Unlock()
+	baseline = nil
+}
+
+func snapshotBaseline() map[string]secret.SecretSet {
+	baselineMu.RLock()
+	defer baselineMu.RUnlock()
+
+	snapshot := make(map[string]secret.SecretSet, len(baseline))
+	for repository, set := range baseline {
+		snapshot[repository] = set.Clone()
+	}
+	return snapshot
 }
 
 func LoadBaseline(path string) error {

@@ -42,7 +42,14 @@ func (gi *GitleaksReportItem) ToSecret(repository string) (*secret.Secret, error
 
 func Scan(ctx context.Context, repository string, directory string, full bool) (secret.SecretSet, error) {
 	reportPath := path.Join(directory, "gitleaks.json")
+	return ScanWithReportPath(ctx, repository, directory, reportPath, full)
+}
 
+// ScanWithReportPath runs Gitleaks with an explicit report path. Callers that
+// run multiple engines against the same repository snapshot can keep the
+// report outside the repository directory so another engine never observes
+// the temporary report.
+func ScanWithReportPath(ctx context.Context, repository string, directory string, reportPath string, full bool) (secret.SecretSet, error) {
 	args := []string{
 		"git",
 		"--report-path=" + reportPath,
@@ -75,6 +82,9 @@ func Scan(ctx context.Context, repository string, directory string, full bool) (
 	}
 
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
 			return nil, fmt.Errorf("\"gitleaks\" exited with error:\n%s", stderr)

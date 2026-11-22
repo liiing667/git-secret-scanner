@@ -24,6 +24,9 @@ We designed this tool to combine the strenghts of both previous tools in order t
 - [TruffleHog](https://github.com/trufflesecurity/trufflehog) (>= 3.90.3)
 - [Gitleaks](https://github.com/gitleaks/gitleaks) (>= 8.28.0)
 
+Only the engines selected with `--scanners` need to be installed; the default
+is to run both.
+
 You can easily check that all requirements are met with the commands below:
 
 ```shell
@@ -107,6 +110,22 @@ git-secret-scanner github -o "<org>"
 # With GITLAB_TOKEN set
 git-secret-scanner gitlab -g "<group>"
 ```
+
+### Choose scanners
+
+By default, `git-secret-scanner` runs TruffleHog and Gitleaks concurrently on
+the same repository snapshot. Use `--scanners` to run a single engine while
+keeping the same report fields:
+
+```shell
+git-secret-scanner github -o "<org>" --scanners gitleaks
+git-secret-scanner gitlab -g "<group>" --scanners trufflehog
+```
+
+An engine that fails is retried with a clean result slot. Findings are only
+published when every selected engine has completed successfully, so a retry
+can never mix partial findings with a previous or concurrent scan. The final
+report is staged and atomically published at the end of a complete scan.
 
 ### Ignore secrets
 

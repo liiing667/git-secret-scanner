@@ -1,8 +1,10 @@
 package report
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/gocarina/gocsv"
 	"github.com/padok-team/git-secret-scanner/internal/report/secret"
@@ -13,6 +15,8 @@ type CSVReportWriter struct {
 	SecretsWrittenCount int
 
 	file *os.File
+	lock sync.Mutex
+	done bool
 }
 
 func NewCSVReportWriter(path string) (*CSVReportWriter, error) {
@@ -30,6 +34,13 @@ func NewCSVReportWriter(path string) (*CSVReportWriter, error) {
 }
 
 func (w *CSVReportWriter) WriteAll(s []*secret.Secret) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.done {
+		return errors.New("report writer is already closed")
+	}
+
 	if len(s) > 0 {
 		if w.SecretsWrittenCount == 0 {
 			if err := gocsv.Marshal(s, w.file); err != nil {
@@ -48,6 +59,14 @@ func (w *CSVReportWriter) WriteAll(s []*secret.Secret) error {
 }
 
 func (w *CSVReportWriter) Close() error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.done {
+		return nil
+	}
+	w.done = true
+
 	return w.file.Close()
 }
 

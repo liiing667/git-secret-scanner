@@ -3,7 +3,6 @@ package progress
 import (
 	"context"
 	"sync"
-	"time"
 )
 
 type TaskFunc func(ctx context.Context) error
@@ -57,12 +56,20 @@ type taskPool struct {
 	// quit to signal the workers to stop working
 	quit chan struct{}
 
+	// workers tracks the worker goroutines so that Wait does not return while
+	// a task is still writing to a shared report.
+	workers sync.WaitGroup
+
 	err error
 
 	TasksDoneCount int
 }
 
 func newTaskPool(ctx context.Context, concurrency int, size int) *taskPool {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
 	tasks := make(chan *Task, size)
 
 	return &taskPool{
@@ -87,7 +94,9 @@ func (p *taskPool) Start() {
 			p.Stop(nil)
 		} else {
 			for i := 0; i < p.numWorkers; i++ {
+				p.workers.Add(1)
 				go func(workerNum int) {
+					defer p.workers.Done()
 					for task := range p.tasks {
 						select {
 						case <-p.quit:
@@ -119,9 +128,17 @@ func (p *taskPool) incrTasksDoneCount() int {
 	return count
 }
 
+func (p *taskPool) TasksDone() int {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	return p.TasksDoneCount
+}
+
 func (p *taskPool) Stop(err error) {
 	p.stop.Do(func() {
+		p.lock.Lock()
 		p.err = err
+		p.lock.Unlock()
 		close(p.quit)
 	})
 }
@@ -149,13 +166,14 @@ func (p *taskPool) Completed() bool {
 }
 
 func (p *taskPool) Error() error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	return p.err
 }
 
 func (p *taskPool) Wait() error {
-	for !p.Completed() {
-		time.Sleep(100 * time.Millisecond)
-	}
+	<-p.quit
+	p.workers.Wait()
 
 	return p.Error()
 }

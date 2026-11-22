@@ -33,40 +33,61 @@ var (
 func preRun(cmd *cobra.Command, args []string) {
 	logging.SetupLogger(verbose, noColor)
 
-	// check that gitleaks and trufflehog binary exists
-	gPath, err := exec.LookPath(scannerGitleaksPath)
+	engines, err := scan.ResolveEngines(scanArgs.Engines, scanArgs.Scanners)
 	if err != nil {
-		log.Fatal().Msgf("gitleaks binary not found: %v", err)
-	}
-	tPath, err := exec.LookPath(scannerTrufflehogPath)
-	if err != nil {
-		log.Fatal().Msgf("trufflehog binary not found: %v", err)
+		log.Fatal().Msgf("invalid scanner selection: %v", err)
 	}
 
-	gitleaks.SetCommandPath(gPath)
-	trufflehog.SetCommandPath(tPath)
+	var (
+		gPath    string
+		tPath    string
+		gVersion string
+		tVersion string
+	)
 
-	ok, gVersion, err := gitleaks.IsVersionValid()
-	if err != nil {
-		log.Warn().Msgf("failed to read gitleaks version: %v", err)
-	} else if !ok {
-		log.Warn().
-			Msgf("this tool is designed to run with gitleaks %s or later, found gitleaks %s", gitleaks.MinVersion, gVersion)
+	// Only the selected engines need to be installed. This keeps single
+	// engine scans usable when the other scanner is not present.
+	if engines.Contains(scan.EngineGitleaks) {
+		gPath, err = exec.LookPath(scannerGitleaksPath)
+		if err != nil {
+			log.Fatal().Msgf("gitleaks binary not found: %v", err)
+		}
+		gitleaks.SetCommandPath(gPath)
+
+		ok, version, versionErr := gitleaks.IsVersionValid()
+		gVersion = version
+		if versionErr != nil {
+			log.Warn().Msgf("failed to read gitleaks version: %v", versionErr)
+		} else if !ok {
+			log.Warn().
+				Msgf("this tool is designed to run with gitleaks %s or later, found gitleaks %s", gitleaks.MinVersion, gVersion)
+		}
 	}
-	ok, tVersion, err := trufflehog.IsVersionValid()
-	if err != nil {
-		log.Warn().Msgf("failed to read trufflehog version: %v", err)
-	} else if !ok {
-		log.Warn().
-			Msgf("this tool is designed to run with trufflehog %s or later, found trufflehog %s", trufflehog.MinVersion, tVersion)
+
+	if engines.Contains(scan.EngineTrufflehog) {
+		tPath, err = exec.LookPath(scannerTrufflehogPath)
+		if err != nil {
+			log.Fatal().Msgf("trufflehog binary not found: %v", err)
+		}
+		trufflehog.SetCommandPath(tPath)
+
+		ok, version, versionErr := trufflehog.IsVersionValid()
+		tVersion = version
+		if versionErr != nil {
+			log.Warn().Msgf("failed to read trufflehog version: %v", versionErr)
+		} else if !ok {
+			log.Warn().
+				Msgf("this tool is designed to run with trufflehog %s or later, found trufflehog %s", trufflehog.MinVersion, tVersion)
+		}
 	}
 
 	log.Debug().
+		Str("scanners", engines.String()).
 		Str("gitleaks_path", gPath).
 		Str("gitleaks_version", gVersion).
 		Str("trufflehog_path", tPath).
 		Str("trufflehog_version", tVersion).
-		Msgf("running with gitleaks %s and trufflehog %s", gVersion, tVersion)
+		Msg("scanner selection resolved")
 
 	// parse flags
 	scmConfig.IncludeArchived = !noArchived
@@ -82,6 +103,7 @@ func preRun(cmd *cobra.Command, args []string) {
 		Str("scan_type", scanArgs.ScanType.String()).
 		Str("report_path", scanArgs.ReportPath).
 		Str("format", scanArgs.ReportFormat.String()).
+		Str("scanners", engines.String()).
 		Str("fingerprints_ignore_path", scanArgs.FingerprintsIgnorePath).
 		Str("baseline_path", scanArgs.BaselinePath).
 		Int("max_concurrency", scanArgs.MaxConcurrency).
@@ -99,6 +121,7 @@ func registerCommonFlags(cmd *cobra.Command) {
 	// scan args
 	cmd.Flags().StringVarP(&scanArgs.ReportPath, "report-path", "r", "", "Path to the CSV report file to generate (default \"report.{json,csv}\")")
 	cmd.Flags().VarP(&scanArgs.ReportFormat, "format", "f", "Format of the report")
+	cmd.Flags().Var(&scanArgs.Engines, "scanners", "Secret scanners to run: all, gitleaks or trufflehog")
 	cmd.Flags().StringVarP(&scanArgs.FingerprintsIgnorePath, "fingerprints-ignore-path", "i", "", "Path to file with newline separated fingerprints (SHA-256) of secrets to ignore during the scan")
 	cmd.Flags().StringVarP(&scanArgs.BaselinePath, "baseline-path", "b", "", "Path to the CSV report to use as baseline for the scan")
 	cmd.Flags().IntVar(&scanArgs.MaxConcurrency, "max-concurrency", 5, "Maximum number of concurrent workers")
