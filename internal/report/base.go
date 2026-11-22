@@ -19,3 +19,10 @@ func reportPath(path string, ext string) string {
 	}
 	return path
 }
+
+// ResolvePath returns the effective report file path for a user-provided
+// path, falling back to the default report file name with the given
+// extension when the path is empty.
+func ResolvePath(path string, ext string) string {
+	return reportPath(path, ext)
+}
